@@ -1,0 +1,28 @@
+# --- Archivos compilados y de Build ---
+target/
+*.class
+*.jar
+*.war
+*.ear
+
+# --- IDEs (IntelliJ IDEA, Eclipse, VS Code) ---
+.idea/
+*.iml
+.classpath
+.project
+.settings/
+.vscode/
+
+# --- Logs y Sistema ---
+*.log
+.DS_Store
+Thumbs.db
+
+# --- Archivos temporales ---
+tmp/
+temp/
+
+# --- SEGURIDAD (Opcional pero recomendado) ---
+# Si tienes contraseñas reales en application.properties,
+# considera no subirlo o usar variables de entorno.
+# src/main/resources/application.properties
