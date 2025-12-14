@@ -42,69 +42,126 @@ public class PrediccionEspecialController {
         return jugadorRepo.findAll();
     }
 
-    // --- USUARIO: VER MI PREDICCIÓN ---
+    // --- USUARIO: VER MI PREDICCIÓN (DTO SEGURO) ---
     @GetMapping("/usuario/{usuarioId}")
-    public PrediccionEspecial obtenerPorUsuario(@PathVariable Long usuarioId) {
-        // Retorna lo que tenga (puede tener solo campeón, solo goleador, o ambos)
-        return repo.findByUsuarioId(usuarioId).orElse(null);
+    public PrediccionEspecialResponseDTO obtenerPorUsuario(@PathVariable Long usuarioId) {
+        PrediccionEspecial entidad = repo.findByUsuarioId(usuarioId).orElse(null);
+
+        if (entidad == null) return null;
+
+        // Convertimos la Entidad a DTO para limpiar tokens y datos basura
+        return new PrediccionEspecialResponseDTO(entidad);
     }
 
-    // --- ENDPOINT 1: PREDECIR SOLO CAMPEÓN ---
+    // --- ENDPOINTS DE GUARDADO ---
     @PostMapping("/campeon")
-    public PrediccionEspecial guardarCampeon(@Valid @RequestBody PrediccionCampeonDTO dto) {
+    public PrediccionEspecialResponseDTO guardarCampeon(@Valid @RequestBody PrediccionCampeonDTO dto) {
         Usuario usuario = usuarioRepo.findById(dto.getUsuarioId())
                 .orElseThrow(() -> new RuntimeException(AppConstants.ERR_USUARIO_NO_ENCONTRADO));
 
         Equipo campeon = equipoRepo.findById(dto.getEquipoCampeonId())
                 .orElseThrow(() -> new RuntimeException("Equipo campeón no encontrado"));
 
-        // Buscamos si ya tiene registro para actualizarlo, sino creamos uno nuevo
         PrediccionEspecial especial = repo.findByUsuarioId(dto.getUsuarioId())
                 .orElse(new PrediccionEspecial());
 
         especial.setUsuario(usuario);
         especial.setEquipoCampeon(campeon);
-        // NO tocamos el goleador (se mantiene null o el que ya estaba)
 
-        return repo.save(especial);
+        PrediccionEspecial guardado = repo.save(especial);
+        return new PrediccionEspecialResponseDTO(guardado);
     }
 
-    // --- ENDPOINT 2: PREDECIR SOLO GOLEADOR ---
     @PostMapping("/goleador")
-    public PrediccionEspecial guardarGoleador(@Valid @RequestBody PrediccionGoleadorDTO dto) {
+    public PrediccionEspecialResponseDTO guardarGoleador(@Valid @RequestBody PrediccionGoleadorDTO dto) {
         Usuario usuario = usuarioRepo.findById(dto.getUsuarioId())
                 .orElseThrow(() -> new RuntimeException(AppConstants.ERR_USUARIO_NO_ENCONTRADO));
 
         Jugador goleador = jugadorRepo.findById(dto.getJugadorGoleadorId())
                 .orElseThrow(() -> new RuntimeException("Jugador goleador no encontrado"));
 
-        // Buscamos si ya tiene registro
         PrediccionEspecial especial = repo.findByUsuarioId(dto.getUsuarioId())
                 .orElse(new PrediccionEspecial());
 
         especial.setUsuario(usuario);
         especial.setJugadorGoleador(goleador);
-        // NO tocamos el campeón (se mantiene null o el que ya estaba)
 
-        return repo.save(especial);
+        PrediccionEspecial guardado = repo.save(especial);
+        return new PrediccionEspecialResponseDTO(guardado);
     }
 
     // ==========================================
-    // DTOs INDEPENDIENTES
+    // DTOs DE RESPUESTA (CLEAN ARCHITECTURE)
+    // ==========================================
+    @Data
+    static class PrediccionEspecialResponseDTO {
+        private Long id;
+        private UsuarioResumenDTO usuario;
+        private EquipoSimpleDTO equipoCampeon;
+        private JugadorSimpleDTO jugadorGoleador;
+        private EquipoSimpleDTO equipoPalo; // ¡Aquí debe salir tu Gallo Tapado!
+
+        public PrediccionEspecialResponseDTO(PrediccionEspecial p) {
+            this.id = p.getId();
+            if (p.getUsuario() != null) {
+                this.usuario = new UsuarioResumenDTO(p.getUsuario().getId(), p.getUsuario().getUsername());
+            }
+            if (p.getEquipoCampeon() != null) {
+                this.equipoCampeon = new EquipoSimpleDTO(p.getEquipoCampeon());
+            }
+            if (p.getJugadorGoleador() != null) {
+                this.jugadorGoleador = new JugadorSimpleDTO(p.getJugadorGoleador());
+            }
+            if (p.getEquipoPalo() != null) {
+                this.equipoPalo = new EquipoSimpleDTO(p.getEquipoPalo());
+            }
+        }
+    }
+
+    @Data
+    static class UsuarioResumenDTO {
+        private Long id;
+        private String username;
+        public UsuarioResumenDTO(Long id, String username) {
+            this.id = id;
+            this.username = username;
+        }
+    }
+
+    @Data
+    static class EquipoSimpleDTO {
+        private Long id;
+        private String nombre;
+        private String urlEscudo;
+        public EquipoSimpleDTO(Equipo e) {
+            this.id = e.getId();
+            this.nombre = e.getNombre();
+            this.urlEscudo = e.getUrlEscudo();
+        }
+    }
+
+    @Data
+    static class JugadorSimpleDTO {
+        private Long id;
+        private String nombre;
+        public JugadorSimpleDTO(Jugador j) {
+            this.id = j.getId();
+            this.nombre = j.getNombre();
+        }
+    }
+
+    // ==========================================
+    // DTOs DE PETICIÓN
     // ==========================================
     @Data
     static class PrediccionCampeonDTO {
-        @NotNull
-        private Long usuarioId;
-        @NotNull
-        private Long equipoCampeonId;
+        @NotNull private Long usuarioId;
+        @NotNull private Long equipoCampeonId;
     }
 
     @Data
     static class PrediccionGoleadorDTO {
-        @NotNull
-        private Long usuarioId;
-        @NotNull
-        private Long jugadorGoleadorId;
+        @NotNull private Long usuarioId;
+        @NotNull private Long jugadorGoleadorId;
     }
 }

@@ -90,7 +90,7 @@ public class DataSeeder implements CommandLineRunner {
             Estadio arrowhead = createEstadio("Arrowhead Stadium", "Kansas City", "USA");
 
             // 5. FASES
-            Fase grupos = createFase("Fase de Grupos", LocalDateTime.of(2025, 12, 10, 23, 59));
+            Fase grupos = createFase("Fase de Grupos", LocalDateTime.of(2026, 6, 10, 23, 59));
             Fase dieciseisavos = createFase("Dieciseisavos de Final", LocalDateTime.of(2026, 6, 27, 23, 59));
             Fase octavos = createFase("Octavos de Final", LocalDateTime.of(2026, 7, 3, 23, 59));
             Fase cuartos = createFase("Cuartos de Final", LocalDateTime.of(2026, 7, 8, 23, 59));

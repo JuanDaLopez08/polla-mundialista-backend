@@ -336,7 +336,49 @@ public class TorneoService {
         return "Puntos Goleador asignados a " + c + " usuarios.";
     }
 
-    public String sortearPalos() { return "Sorteo simulado OK"; }
+    @Transactional
+    public String sortearPalos() {
+        // 1. Obtener equipos candidatos
+        List<Equipo> palos = equipoRepo.findByEsCandidatoPaloTrue();
+        if (palos.isEmpty()) return "Error: No hay equipos marcados como 'Candidato a Palo' en la base de datos.";
+
+        // 2. Obtener usuarios participantes (CORRECCIÓN IMPORTANTE: Comparar por nombre de rol)
+        // Evitamos u.getRol().equals(rolObjeto) porque falla si no hay equals() en la entidad.
+        List<Usuario> usuarios = usuarioRepo.findAll().stream()
+                .filter(u -> u.getRol() != null && AppConstants.ROLE_USER.equals(u.getRol().getNombre()))
+                .collect(Collectors.toList());
+
+        if (usuarios.isEmpty()) return "Error: No se encontraron usuarios con rol " + AppConstants.ROLE_USER;
+
+        // 3. Asignación aleatoria
+        Collections.shuffle(palos);
+        int idx = 0;
+        int asignados = 0;
+
+        for (Usuario u : usuarios) {
+            // Buscamos si ya tiene predicción especial, si no, creamos una
+            PrediccionEspecial pe = prediccionEspecialRepo.findByUsuarioId(u.getId())
+                    .orElse(new PrediccionEspecial());
+
+            pe.setUsuario(u); // Aseguramos la relación
+
+            // Solo asignamos si aún no tiene palo (para no sobrescribir sorteos previos si se corre 2 veces)
+            if (pe.getEquipoPalo() == null) {
+                // Si se acaban los equipos, barajamos y empezamos de nuevo (ciclo circular)
+                if (idx >= palos.size()) {
+                    idx = 0;
+                    Collections.shuffle(palos);
+                }
+
+                Equipo paloAsignado = palos.get(idx++);
+                pe.setEquipoPalo(paloAsignado);
+
+                prediccionEspecialRepo.save(pe);
+                asignados++;
+            }
+        }
+        return "Sorteo OK. Se asignaron equipos sorpresa a " + asignados + " usuarios.";
+    }
 
     private void sumarPuntos(Usuario u, int puntos) {
         u.setPuntosTotales((u.getPuntosTotales() == null ? 0 : u.getPuntosTotales()) + puntos);
