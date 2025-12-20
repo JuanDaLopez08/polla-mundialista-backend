@@ -2,22 +2,15 @@ package com.mundial.polla_mundialista.controller;
 
 import com.mundial.polla_mundialista.dto.HistorialDTO;
 import com.mundial.polla_mundialista.dto.PrediccionDTO;
-import com.mundial.polla_mundialista.entity.Fase;
-import com.mundial.polla_mundialista.entity.Partido;
-import com.mundial.polla_mundialista.entity.Prediccion;
-import com.mundial.polla_mundialista.entity.Usuario;
-import com.mundial.polla_mundialista.repository.PartidoRepository;
-import com.mundial.polla_mundialista.repository.PrediccionRepository;
-import com.mundial.polla_mundialista.repository.UsuarioRepository;
+import com.mundial.polla_mundialista.entity.*;
+import com.mundial.polla_mundialista.repository.*;
 import com.mundial.polla_mundialista.util.AppConstants;
 import jakarta.validation.Valid;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*; // Importante para Map, List, etc.
 import java.util.stream.Collectors;
 
 @RestController
@@ -28,19 +21,22 @@ public class PrediccionController {
     private final PrediccionRepository prediccionRepository;
     private final UsuarioRepository usuarioRepository;
     private final PartidoRepository partidoRepository;
+    private final PrediccionClasificadoRepository prediccionClasificadoRepository;
 
-    public PrediccionController(PrediccionRepository prediccionRepository, UsuarioRepository usuarioRepository, PartidoRepository partidoRepository) {
+    public PrediccionController(PrediccionRepository prediccionRepository,
+                                UsuarioRepository usuarioRepository,
+                                PartidoRepository partidoRepository,
+                                PrediccionClasificadoRepository prediccionClasificadoRepository) {
         this.prediccionRepository = prediccionRepository;
         this.usuarioRepository = usuarioRepository;
         this.partidoRepository = partidoRepository;
+        this.prediccionClasificadoRepository = prediccionClasificadoRepository;
     }
 
-    // --- 1. HISTORIAL AGRUPADO (Para la pestaña Histórico del Front) ---
+    // --- 1. HISTORIAL AGRUPADO ---
     @GetMapping("/historial")
     public List<HistorialDTO> obtenerHistorialCompleto() {
         List<Prediccion> todas = prediccionRepository.findAll();
-
-        // Agrupamos por Usuario
         Map<Usuario, List<Prediccion>> agrupadas = todas.stream()
                 .collect(Collectors.groupingBy(Prediccion::getUsuario));
 
@@ -55,7 +51,6 @@ public class PrediccionController {
                 HistorialDTO.PrediccionResumenDTO resumen = new HistorialDTO.PrediccionResumenDTO();
                 resumen.setPartidoId(p.getPartido().getId());
 
-                // Validamos nulls por si son partidos de fases finales aún no definidos
                 if (p.getPartido().getEquipoLocal() != null) {
                     resumen.setEquipoLocal(p.getPartido().getEquipoLocal().getNombre());
                     resumen.setUrlEscudoLocal(p.getPartido().getEquipoLocal().getUrlEscudo());
@@ -81,7 +76,6 @@ public class PrediccionController {
             historial.add(dto);
         });
 
-        // Ordenamos por puntos (Mayor a menor)
         historial.sort((a, b) -> {
             int pA = a.getPuntosTotales() == null ? 0 : a.getPuntosTotales();
             int pB = b.getPuntosTotales() == null ? 0 : b.getPuntosTotales();
@@ -97,23 +91,18 @@ public class PrediccionController {
         return prediccionRepository.findByUsuarioId(usuarioId);
     }
 
-    // --- 3. CREAR O EDITAR PREDICCIÓN (CON REGLA DE FASE) ---
+    // --- 3. CREAR PREDICCIÓN ---
     @PostMapping
     public Prediccion crearOActualizarPrediccion(@Valid @RequestBody PrediccionDTO dto) {
-
         Usuario usuario = usuarioRepository.findById(dto.getUsuarioId())
                 .orElseThrow(() -> new RuntimeException(AppConstants.ERR_USUARIO_NO_ENCONTRADO));
-
         Partido partido = partidoRepository.findById(dto.getPartidoId())
                 .orElseThrow(() -> new RuntimeException(AppConstants.ERR_PARTIDO_NO_ENCONTRADO));
 
-        // VALIDACIÓN DE NEGOCIO: FECHA LÍMITE DE LA FASE
         Fase fase = partido.getFase();
         if (fase.getFechaLimite() != null && LocalDateTime.now().isAfter(fase.getFechaLimite())) {
-            throw new RuntimeException("TIEMPO EXPIRADO: La fase '" + fase.getNombre() + "' cerró sus apuestas el " + fase.getFechaLimite());
+            throw new RuntimeException("TIEMPO EXPIRADO: La fase '" + fase.getNombre() + "' cerró sus apuestas.");
         }
-
-        // VALIDACIÓN EXTRA: El partido individual ya comenzó
         if (LocalDateTime.now().isAfter(partido.getFechaPartido())) {
             throw new RuntimeException("¡El partido ya comenzó! Apuestas cerradas.");
         }
@@ -122,24 +111,47 @@ public class PrediccionController {
                 .filter(p -> p.getUsuario().getId().equals(usuario.getId()) && p.getPartido().getId().equals(partido.getId()))
                 .findFirst();
 
-        Prediccion prediccion;
-
         if (existente.isPresent()) {
-            prediccion = existente.get();
-            // Actualizamos valores
-            prediccion.setGolesLocalPredicho(dto.getGolesLocal());
-            prediccion.setGolesVisitantePredicho(dto.getGolesVisitante());
-            prediccion.setFechaRegistro(LocalDateTime.now()); // Actualizamos auditoría
-        } else {
-            // Creamos nueva
-            prediccion = new Prediccion();
-            prediccion.setUsuario(usuario);
-            prediccion.setPartido(partido);
-            prediccion.setGolesLocalPredicho(dto.getGolesLocal());
-            prediccion.setGolesVisitantePredicho(dto.getGolesVisitante());
-            prediccion.setFechaRegistro(LocalDateTime.now());
+            throw new RuntimeException("YA PREDICHO: No se permiten cambios en pronósticos ya guardados.");
         }
 
+        Prediccion prediccion = new Prediccion();
+        prediccion.setUsuario(usuario);
+        prediccion.setPartido(partido);
+        prediccion.setGolesLocalPredicho(dto.getGolesLocal());
+        prediccion.setGolesVisitantePredicho(dto.getGolesVisitante());
+        prediccion.setFechaRegistro(LocalDateTime.now());
+
         return prediccionRepository.save(prediccion);
+    }
+
+    // --- 4. CLASIFICADOS (SOLUCIÓN AL ERROR DE TYPE DEFINITION) ---
+    // Devolvemos List<Map> en lugar de List<Entity> para evitar problemas de Hibernate Proxy
+    @GetMapping("/clasificados/usuario/{usuarioId}")
+    public ResponseEntity<List<Map<String, Object>>> obtenerTodosClasificadosUsuario(@PathVariable Long usuarioId) {
+
+        // 1. Obtenemos la data cruda de la BD
+        List<PrediccionClasificado> lista = prediccionClasificadoRepository.findByUsuarioId(usuarioId);
+
+        // 2. Transformamos a un Mapa simple (JSON Limpio)
+        List<Map<String, Object>> respuesta = lista.stream().map(pc -> {
+            Map<String, Object> item = new HashMap<>();
+            item.put("prediccionId", pc.getId());
+
+            // Extraemos datos del equipo con seguridad (null check)
+            if (pc.getEquipo() != null) {
+                item.put("equipoId", pc.getEquipo().getId());
+                item.put("nombreEquipo", pc.getEquipo().getNombre());
+                item.put("urlEscudo", pc.getEquipo().getUrlEscudo());
+
+                // Si necesitas el grupo
+                if (pc.getEquipo().getGrupo() != null) {
+                    item.put("grupo", pc.getEquipo().getGrupo().getNombre());
+                }
+            }
+            return item;
+        }).collect(Collectors.toList());
+
+        return ResponseEntity.ok(respuesta);
     }
 }

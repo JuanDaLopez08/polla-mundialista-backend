@@ -1,37 +1,30 @@
 package com.mundial.polla_mundialista.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties; // Importar esto
 import jakarta.persistence.*;
 import lombok.Data;
-import java.time.LocalDateTime;
 
-@Entity
-@Table(name = "predicciones_clasificados", uniqueConstraints = {
-        @UniqueConstraint(columnNames = {"usuario_id", "equipo_id"}) // Un usuario no puede elegir al mismo equipo dos veces
-})
 @Data
+@Entity
+@Table(name = "predicciones_clasificados")
 public class PrediccionClasificado {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    // Evita el error de recursión infinita o proxy al serializar Usuario
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "usuario_id", nullable = false)
+    @JoinColumn(name = "usuario_id")
+    @JsonIgnoreProperties({"hibernateLazyInitializer", "handler", "predicciones", "password", "rol"})
     private Usuario usuario;
 
-    @ManyToOne
-    @JoinColumn(name = "equipo_id", nullable = false)
+    // Evita el error de proxy al serializar Equipo
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "equipo_id")
+    @JsonIgnoreProperties({"hibernateLazyInitializer", "handler", "jugadores"})
     private Equipo equipo;
 
-    // Guardamos a qué grupo pertenece el equipo para facilitar consultas
-    // (Ej: "Traeme todos los clasificados que Juan eligió del Grupo A")
-    @ManyToOne
-    @JoinColumn(name = "grupo_id", nullable = false)
-    private Grupo grupo;
-
-    @Column(nullable = false)
-    private LocalDateTime fechaRegistro = LocalDateTime.now();
-
-    // Campo para saber si acertó (se llenará al final de la fase)
-    private Boolean acerto = false;
+    // Si tienes un campo booleano de si acertó o no
+    private Boolean acerto;
 }

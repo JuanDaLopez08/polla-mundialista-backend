@@ -9,6 +9,8 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpStatus;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -34,12 +36,10 @@ public class PrediccionClasificadoController {
         this.equipoRepo = equipoRepo;
     }
 
-    // CORRECCIÓN: Devolvemos un DTO (PrediccionResumenDTO) en lugar de la Entidad
     @GetMapping("/usuario/{usuarioId}/grupo/{grupoId}")
     public List<PrediccionResumenDTO> obtenerPorGrupo(@PathVariable Long usuarioId, @PathVariable Long grupoId) {
-        List<PrediccionClasificado> predicciones = prediccionRepo.findByUsuarioIdAndGrupoId(usuarioId, grupoId);
+        List<PrediccionClasificado> predicciones = prediccionRepo.findByUsuarioIdAndEquipoGrupoId(usuarioId, grupoId);
 
-        // Convertimos la entidad sucia (con proxies) a un DTO limpio
         return predicciones.stream()
                 .map(p -> new PrediccionResumenDTO(
                         p.getId(),
@@ -50,45 +50,55 @@ public class PrediccionClasificadoController {
                 .collect(Collectors.toList());
     }
 
-    // Guardar los clasificados
+    // ==========================================
+    // 🛡️ GUARDAR BLINDADO (SIN SOBRESCRITURA)
+    // ==========================================
     @PostMapping
     @Transactional
-    public String guardarPrediccion(@Valid @RequestBody ClasificadosDTO dto) {
+    public ResponseEntity<?> guardarPrediccion(@Valid @RequestBody ClasificadosDTO dto) {
 
+        // 1. Validar Usuario y Grupo
         Usuario usuario = usuarioRepo.findById(dto.getUsuarioId())
                 .orElseThrow(() -> new RuntimeException(AppConstants.ERR_USUARIO_NO_ENCONTRADO));
 
         Grupo grupo = grupoRepo.findById(dto.getGrupoId())
                 .orElseThrow(() -> new RuntimeException("Grupo no encontrado"));
 
-        // 1. Borrar predicciones anteriores
-        List<PrediccionClasificado> anteriores = prediccionRepo.findByUsuarioIdAndGrupoId(usuario.getId(), grupo.getId());
-        prediccionRepo.deleteAll(anteriores);
+        // 2. SEGURIDAD: Verificar si ya existen predicciones para este grupo
+        List<PrediccionClasificado> anteriores = prediccionRepo.findByUsuarioIdAndEquipoGrupoId(usuario.getId(), grupo.getId());
 
-        // 2. Guardar las nuevas
+        if (!anteriores.isEmpty()) {
+            // 🛑 BLOQUEO DE ATAQUE: Si ya hay datos, rechazamos la petición.
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body("ERROR: Ya has realizado tu predicción para el Grupo " + grupo.getNombre() + ". No se permiten cambios.");
+        }
+
+        // 3. SEGURIDAD: Validar que envíen exactamente 2 equipos (Ni 1, ni 3)
+        if (dto.getEquiposIds().size() != 2) {
+            return ResponseEntity.badRequest()
+                    .body("ERROR: Debes seleccionar exactamente 2 equipos para clasificar.");
+        }
+
+        // 4. Guardar las nuevas (Solo llegamos aquí si no existían previas)
         for (Long equipoId : dto.getEquiposIds()) {
             Equipo equipo = equipoRepo.findById(equipoId)
                     .orElseThrow(() -> new RuntimeException("Equipo no encontrado: " + equipoId));
 
+            // Validar que el equipo pertenezca al grupo (Anti-Hack)
             if (equipo.getGrupo() == null || !equipo.getGrupo().getId().equals(grupo.getId())) {
-                throw new RuntimeException("El equipo " + equipo.getNombre() + " no pertenece al Grupo " + grupo.getNombre());
+                return ResponseEntity.badRequest()
+                        .body("ERROR: El equipo " + equipo.getNombre() + " no pertenece al Grupo " + grupo.getNombre());
             }
 
             PrediccionClasificado prediccion = new PrediccionClasificado();
             prediccion.setUsuario(usuario);
-            prediccion.setGrupo(grupo);
             prediccion.setEquipo(equipo);
-            prediccion.setFechaRegistro(LocalDateTime.now());
-
             prediccionRepo.save(prediccion);
         }
 
-        return "Predicción de clasificados guardada exitosamente.";
+        return ResponseEntity.ok("Predicción de clasificados guardada exitosamente.");
     }
 
-    // ==========================================
-    // DTO INTERNO (Para evitar el error ByteBuddyInterceptor)
-    // ==========================================
     @Data
     @AllArgsConstructor
     static class PrediccionResumenDTO {

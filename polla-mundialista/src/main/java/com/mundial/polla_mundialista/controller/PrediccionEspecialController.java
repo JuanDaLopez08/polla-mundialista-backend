@@ -12,6 +12,8 @@ import com.mundial.polla_mundialista.util.AppConstants;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -44,54 +46,74 @@ public class PrediccionEspecialController {
 
     // --- USUARIO: VER MI PREDICCIÓN (DTO SEGURO) ---
     @GetMapping("/usuario/{usuarioId}")
-    public PrediccionEspecialResponseDTO obtenerPorUsuario(@PathVariable Long usuarioId) {
+    public ResponseEntity<PrediccionEspecialResponseDTO> obtenerPorUsuario(@PathVariable Long usuarioId) {
         PrediccionEspecial entidad = repo.findByUsuarioId(usuarioId).orElse(null);
 
-        if (entidad == null) return null;
+        if (entidad == null) return ResponseEntity.ok(null);
 
-        // Convertimos la Entidad a DTO para limpiar tokens y datos basura
-        return new PrediccionEspecialResponseDTO(entidad);
+        return ResponseEntity.ok(new PrediccionEspecialResponseDTO(entidad));
     }
 
-    // --- ENDPOINTS DE GUARDADO ---
+    // ==========================================
+    // 🛡️ GUARDAR CAMPEÓN (BLINDADO)
+    // ==========================================
     @PostMapping("/campeon")
-    public PrediccionEspecialResponseDTO guardarCampeon(@Valid @RequestBody PrediccionCampeonDTO dto) {
+    public ResponseEntity<?> guardarCampeon(@Valid @RequestBody PrediccionCampeonDTO dto) {
+
         Usuario usuario = usuarioRepo.findById(dto.getUsuarioId())
                 .orElseThrow(() -> new RuntimeException(AppConstants.ERR_USUARIO_NO_ENCONTRADO));
 
         Equipo campeon = equipoRepo.findById(dto.getEquipoCampeonId())
                 .orElseThrow(() -> new RuntimeException("Equipo campeón no encontrado"));
 
+        // Buscamos si ya tiene registro, si no, creamos uno nuevo en memoria
         PrediccionEspecial especial = repo.findByUsuarioId(dto.getUsuarioId())
                 .orElse(new PrediccionEspecial());
+
+        // 🛑 SEGURIDAD: Si ya existe un valor en CAMPEÓN, bloqueamos
+        if (especial.getEquipoCampeon() != null) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body("ERROR: Ya elegiste a tu Campeón (" + especial.getEquipoCampeon().getNombre() + "). No se permiten cambios.");
+        }
 
         especial.setUsuario(usuario);
         especial.setEquipoCampeon(campeon);
 
         PrediccionEspecial guardado = repo.save(especial);
-        return new PrediccionEspecialResponseDTO(guardado);
+        return ResponseEntity.ok(new PrediccionEspecialResponseDTO(guardado));
     }
 
+    // ==========================================
+    // 🛡️ GUARDAR GOLEADOR (BLINDADO)
+    // ==========================================
     @PostMapping("/goleador")
-    public PrediccionEspecialResponseDTO guardarGoleador(@Valid @RequestBody PrediccionGoleadorDTO dto) {
+    public ResponseEntity<?> guardarGoleador(@Valid @RequestBody PrediccionGoleadorDTO dto) {
+
         Usuario usuario = usuarioRepo.findById(dto.getUsuarioId())
                 .orElseThrow(() -> new RuntimeException(AppConstants.ERR_USUARIO_NO_ENCONTRADO));
 
         Jugador goleador = jugadorRepo.findById(dto.getJugadorGoleadorId())
                 .orElseThrow(() -> new RuntimeException("Jugador goleador no encontrado"));
 
+        // Buscamos registro existente o creamos uno nuevo
         PrediccionEspecial especial = repo.findByUsuarioId(dto.getUsuarioId())
                 .orElse(new PrediccionEspecial());
+
+        // 🛑 SEGURIDAD: Si ya existe un valor en GOLEADOR, bloqueamos
+        if (especial.getJugadorGoleador() != null) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body("ERROR: Ya elegiste a tu Goleador (" + especial.getJugadorGoleador().getNombre() + "). No se permiten cambios.");
+        }
 
         especial.setUsuario(usuario);
         especial.setJugadorGoleador(goleador);
 
         PrediccionEspecial guardado = repo.save(especial);
-        return new PrediccionEspecialResponseDTO(guardado);
+        return ResponseEntity.ok(new PrediccionEspecialResponseDTO(guardado));
     }
 
     // ==========================================
-    // DTOs DE RESPUESTA (CLEAN ARCHITECTURE)
+    // DTOs DE RESPUESTA
     // ==========================================
     @Data
     static class PrediccionEspecialResponseDTO {
@@ -99,7 +121,7 @@ public class PrediccionEspecialController {
         private UsuarioResumenDTO usuario;
         private EquipoSimpleDTO equipoCampeon;
         private JugadorSimpleDTO jugadorGoleador;
-        private EquipoSimpleDTO equipoPalo; // ¡Aquí debe salir tu Gallo Tapado!
+        private EquipoSimpleDTO equipoPalo;
 
         public PrediccionEspecialResponseDTO(PrediccionEspecial p) {
             this.id = p.getId();
