@@ -7,10 +7,12 @@ import com.mundial.polla_mundialista.repository.JugadorRepository;
 import com.mundial.polla_mundialista.service.TorneoService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
+import org.springframework.data.domain.Sort; // ✅ IMPORTANTE: Agregado para ordenar
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List; // ✅ IMPORTANTE
 
 @RestController
 @RequestMapping("/api/admin")
@@ -21,7 +23,6 @@ public class AdminController {
     private final JugadorRepository jugadorRepo;
     private final TorneoService torneoService;
 
-    // Solo inyectamos lo necesario para CRUD simple y el Servicio Maestro
     public AdminController(EquipoRepository equipoRepo, JugadorRepository jugadorRepo,
                            TorneoService torneoService) {
         this.equipoRepo = equipoRepo;
@@ -30,14 +31,32 @@ public class AdminController {
     }
 
     // ==========================================
-    // 1. GESTIÓN DE EQUIPOS Y JUGADORES (CRUD Simple)
+    // 1. GESTIÓN DE EQUIPOS Y JUGADORES
     // ==========================================
 
+    // ✅ NUEVO: Endpoint para listar equipos ordenados alfabéticamente
+    @GetMapping("/equipos")
+    public List<Equipo> obtenerTodosLosEquipos() {
+        return equipoRepo.findAll(Sort.by(Sort.Direction.ASC, "nombre"));
+    }
+
+    // ✅ MODIFICADO: Ahora soporta cambiar 'esCandidatoPalo'
     @PutMapping("/actualizar-equipo/{id}")
-    public Equipo actualizarEquipo(@PathVariable Long id, @Valid @RequestBody EquipoDTO dto) {
+    public Equipo actualizarEquipo(@PathVariable Long id, @RequestBody EquipoDTO dto) {
+        // Quitamos @Valid del parámetro para permitir actualizaciones parciales (sin enviar nombre obligatoriamente)
         Equipo equipo = equipoRepo.findById(id).orElseThrow(() -> new RuntimeException("Equipo no encontrado"));
-        equipo.setNombre(dto.getNombre());
-        equipo.setUrlEscudo(dto.getUrlEscudo());
+
+        if (dto.getNombre() != null && !dto.getNombre().isBlank()) {
+            equipo.setNombre(dto.getNombre());
+        }
+        if (dto.getUrlEscudo() != null) {
+            equipo.setUrlEscudo(dto.getUrlEscudo());
+        }
+        // Lógica nueva para el Palo
+        if (dto.getEsCandidatoPalo() != null) {
+            equipo.setEsCandidatoPalo(dto.getEsCandidatoPalo());
+        }
+
         return equipoRepo.save(equipo);
     }
 
@@ -61,18 +80,22 @@ public class AdminController {
     }
 
     // ==========================================
-    // 2. GESTIÓN DEL TORNEO (Delegado 100% al Servicio)
+    // 2. GESTIÓN DEL TORNEO (Con Penales)
     // ==========================================
 
     @PutMapping("/partidos/{id}/registrar-resultado")
     public String registrarResultado(@PathVariable Long id, @Valid @RequestBody ResultadoDTO dto) {
-        // Llama al servicio para guardar resultado, calcular puntos y avanzar ronda si aplica
-        return torneoService.registrarResultadoPartido(id, dto.getGolesLocal(), dto.getGolesVisitante());
+        return torneoService.registrarResultadoPartido(
+                id,
+                dto.getGolesLocal(),
+                dto.getGolesVisitante(),
+                dto.getGolesPenalesLocal(),
+                dto.getGolesPenalesVisitante()
+        );
     }
 
     @PutMapping("/partidos/{id}/corregir-llave")
     public String corregirLlave(@PathVariable Long id, @Valid @RequestBody RivalesDTO dto) {
-        // Llama al servicio para forzar los equipos de un partido y compensar puntos de palo si es necesario
         return torneoService.corregirLlaveFaseFinal(id, dto.getEquipoLocalId(), dto.getEquipoVisitanteId());
     }
 
@@ -82,7 +105,7 @@ public class AdminController {
     }
 
     // ==========================================
-    // 3. PREMIOS MANUALES (Delegado 100% al Servicio)
+    // 3. PREMIOS MANUALES
     // ==========================================
 
     @PostMapping("/definir-campeon/{equipoId}")
@@ -98,14 +121,16 @@ public class AdminController {
     // ==========================================
     // DTOs INTERNOS
     // ==========================================
+
+    // ✅ MODIFICADO: Agregamos esCandidatoPalo
     @Data static class EquipoDTO {
-        @NotBlank(message = "El nombre es obligatorio")
-        private String nombre;
+        private String nombre; // Ya no es @NotBlank obligatorio para permitir updates parciales
         private String urlEscudo;
+        private Boolean esCandidatoPalo;
     }
 
     @Data static class JugadorDTO {
-        @NotBlank(message = "El nombre es obligatorio")
+        // @NotBlank(message = "El nombre es obligatorio") // Opcional si quieres validación estricta
         private String nombre;
         private Long equipoId;
     }
@@ -116,6 +141,9 @@ public class AdminController {
 
         @NotNull(message = "Visitante obligatorio") @Min(value = 0, message = "No negativos")
         private Integer golesVisitante;
+
+        private Integer golesPenalesLocal;
+        private Integer golesPenalesVisitante;
     }
 
     @Data static class RivalesDTO {

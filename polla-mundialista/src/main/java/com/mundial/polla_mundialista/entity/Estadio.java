@@ -13,10 +13,10 @@ public class Estadio {
     private Long id;
 
     @Column(nullable = false, unique = true)
-    private String nombre; // Ej: "Estadio Azteca"
+    private String nombre; // Ejemplo: "Estadio Azteca"
 
     @Column(nullable = false)
-    private String ciudad; // Ej: "Ciudad de México"
+    private String ciudad; // Ejemplo: "Ciudad de México"
 
-    private String pais;   // Ej: "México"
+    private String pais;   // Ejemplo: "México"
 }

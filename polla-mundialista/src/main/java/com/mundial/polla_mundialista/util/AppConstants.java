@@ -30,9 +30,43 @@ public class AppConstants {
     public static final String ERR_JUGADOR_NO_ENCONTRADO = "Jugador no encontrado";
     public static final String ERR_EQUIPO_NO_ENCONTRADO = "Equipo no encontrado";
     public static final String ERR_TIEMPO_EXPIRADO = "El tiempo para realizar esta acción ha expirado.";
+    public static final String ERR_EQUIPO_LOCAL_NO_ENCONTRADO = "Equipo Local no encontrado";
+    public static final String ERR_EQUIPO_VISITANTE_NO_ENCONTRADO = "Equipo Visitante no encontrado";
+    public static final String ERR_EQUIPO_PALO_NO_ENCONTRADO = "No hay equipos candidatos a palo";
+
+
 
     //URL Repechaje estandar
     public static final String URL_REPECHAJE = "https://upload.wikimedia.org/wikipedia/commons/thumb/4/46/Question_mark_%28red%29.svg/640px-Question_mark_%28red%29.svg.png";
+
+    // Nombres de Fases
+    public static final String FASE_GRUPOS = "Fase de Grupos";
+    public static final String FASE_DIECISEISAVOS = "Dieciseisavos de Final";
+    public static final String FASE_OCTAVOS = "Octavos de Final";
+    public static final String FASE_CUARTOS = "Cuartos de Final";
+    public static final String FASE_SEMIFINALES = "Semifinales";
+    public static final String FASE_FINAL = "Final";
+    public static final String FASE_TERCER_PUESTO = "Tercer Puesto";
+
+    //Grupos
+    public static final String GRUPO_A= "A";
+    public static final String GRUPO_B= "B";
+    public static final String GRUPO_C= "C";
+    public static final String GRUPO_D= "D";
+    public static final String GRUPO_E= "E";
+    public static final String GRUPO_F= "F";
+    public static final String GRUPO_G= "G";
+    public static final String GRUPO_H= "H";
+    public static final String GRUPO_I= "I";
+    public static final String GRUPO_J= "J";
+    public static final String GRUPO_K= "K";
+    public static final String GRUPO_L= "L";
+
+    //Racha Partido
+    public static final String PARTIDO_GANADO= "G";
+    public static final String PARTIDO_EMPATADO= "E";
+    public static final String PARTIDO_PERDIDO= "P";
+
 
     // Constructor privado para evitar instanciación
     private AppConstants() {

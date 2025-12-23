@@ -27,9 +27,26 @@ public class Usuario {
     @Column(name = "puntos_totales")
     private Integer puntosTotales = 0;
 
+    // ==========================================
+    // 🏆 CAMPOS PARA CRITERIOS DE DESEMPATE
+    // ==========================================
+
+    @Column(name = "cantidad_aciertos_exactos")
+    private Integer cantidadAciertosExactos = 0;
+
+    @Column(name = "cantidad_aciertos_ganador")
+    private Integer cantidadAciertosGanador = 0;
+
+    @Column(name = "acerto_campeon")
+    private Boolean acertoCampeon = false;
+
+    @Column(name = "ultima_fecha_prediccion")
+    private LocalDateTime ultimaFechaPrediccion;
+
+    // ==========================================
+
     // --- RELACIÓN CON ROL ---
-    // Muchos usuarios pueden tener el mismo rol (Many-to-One)
-    @ManyToOne(fetch = FetchType.EAGER) // Eager para cargar el rol al iniciar sesión
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "rol_id", nullable = false)
     private Rol rol;
 

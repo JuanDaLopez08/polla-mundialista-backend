@@ -8,7 +8,7 @@ public class DesglosePuntosDTO {
     private int puntosPorMarcadorExacto;
     private int puntosPorGanador; // O Empate
     private int puntosPorMarcadorInvertido;
-    private int puntosPorClasificados; // Fase de grupos -> 16avos
+    private int puntosPorClasificados; // Fase de grupos -> Dieciseisavos
 
     // Especiales
     private int puntosPorCampeon;

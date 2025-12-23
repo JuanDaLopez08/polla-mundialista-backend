@@ -2,6 +2,7 @@ package com.mundial.polla_mundialista.controller;
 
 import com.mundial.polla_mundialista.dto.PosicionDTO;
 import com.mundial.polla_mundialista.service.TorneoService;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -22,9 +23,16 @@ public class TorneoController {
     }
 
     // Endpoint: Obtener Tabla de Posiciones agrupada por Grupo
-    // Retorna un JSON tipo: { "A": [Equipo1, Equipo2...], "B": [...] }
     @GetMapping("/posiciones")
     public Map<String, List<PosicionDTO>> obtenerTablaPosiciones() {
         return torneoService.calcularTablaPosicionesPorGrupo();
+    }
+
+    // ✅ NUEVO ENDPOINT: Verificar si el torneo finalizó
+    // Retorna true si ya hay Campeón y Goleador registrados en la BD.
+    @GetMapping("/es-finalizado")
+    public ResponseEntity<Boolean> verificarEstadoTorneo() {
+        boolean terminado = torneoService.esTorneoFinalizado();
+        return ResponseEntity.ok(terminado);
     }
 }

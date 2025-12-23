@@ -19,25 +19,14 @@ public class TorneoService {
     private final UsuarioRepository usuarioRepo;
     private final PuntosService puntosService;
     private final PrediccionEspecialRepository prediccionEspecialRepo;
-    private final ConfiguracionRepository configRepo;
-    private final RolRepository rolRepo;
     private final FaseRepository faseRepo;
     private final JugadorRepository jugadorRepo;
     private final ResultadoOficialRepository resultadoRepo;
 
-    // Nombres de Fases
-    private static final String FASE_GRUPOS = "Fase de Grupos";
-    private static final String FASE_16 = "Dieciseisavos de Final";
-    private static final String FASE_8 = "Octavos de Final";
-    private static final String FASE_4 = "Cuartos de Final";
-    private static final String FASE_SEMIS = "Semifinales";
-    private static final String FASE_FINAL = "Final";
-    private static final String FASE_3ER = "Tercer Puesto";
-
     public TorneoService(PartidoRepository partidoRepo, EquipoRepository equipoRepo,
                          PrediccionRepository prediccionRepo, UsuarioRepository usuarioRepo,
                          PuntosService puntosService, PrediccionEspecialRepository prediccionEspecialRepo,
-                         ConfiguracionRepository configRepo, RolRepository rolRepo, FaseRepository faseRepo,
+                         FaseRepository faseRepo,
                          JugadorRepository jugadorRepo, ResultadoOficialRepository resultadoRepo) {
         this.partidoRepo = partidoRepo;
         this.equipoRepo = equipoRepo;
@@ -45,95 +34,117 @@ public class TorneoService {
         this.usuarioRepo = usuarioRepo;
         this.puntosService = puntosService;
         this.prediccionEspecialRepo = prediccionEspecialRepo;
-        this.configRepo = configRepo;
-        this.rolRepo = rolRepo;
         this.faseRepo = faseRepo;
         this.jugadorRepo = jugadorRepo;
         this.resultadoRepo = resultadoRepo;
     }
 
     // ==========================================
-    // 1. REGISTRO DE RESULTADOS (Motor Principal)
+    // 1. REGISTRO DE RESULTADOS (LÓGICA AUTOMÁTICA PENALES)
     // ==========================================
     @Transactional
-    public String registrarResultadoPartido(Long partidoId, Integer golesLocal, Integer golesVisitante) {
+    public String registrarResultadoPartido(Long partidoId, Integer golesLocal, Integer golesVisitante,
+                                            Integer penalesLocal, Integer penalesVisitante) {
+
         Partido partido = partidoRepo.findById(partidoId)
                 .orElseThrow(() -> new RuntimeException(AppConstants.ERR_PARTIDO_NO_ENCONTRADO));
 
+        // 1. Guardar Marcador Regular
         partido.setGolesLocalReal(golesLocal);
         partido.setGolesVisitanteReal(golesVisitante);
         partido.setEstado(AppConstants.ESTADO_FINALIZADO);
+
+        boolean esFaseGrupos = AppConstants.FASE_GRUPOS.equalsIgnoreCase(partido.getFase().getNombre());
+
+        // 2. Determinar Ganador (Calculado, no recibido)
+        if (golesLocal > golesVisitante) {
+            partido.setGanador(partido.getEquipoLocal());
+            partido.setGolesPenalesLocal(null);
+            partido.setGolesPenalesVisitante(null);
+        } else if (golesVisitante > golesLocal) {
+            partido.setGanador(partido.getEquipoVisitante());
+            partido.setGolesPenalesLocal(null);
+            partido.setGolesPenalesVisitante(null);
+        } else {
+            // --- EMPATE EN TIEMPO REGULAR ---
+            if (esFaseGrupos) {
+                partido.setGanador(null); // Empate válido en grupos
+            } else {
+                // --- FASE FINAL: DEFINICIÓN POR PENALES ---
+                if (penalesLocal == null || penalesVisitante == null) {
+                    throw new RuntimeException("ERROR: Empate en fase final. Debe ingresar el marcador de penales.");
+                }
+                if (penalesLocal.equals(penalesVisitante)) {
+                    throw new RuntimeException("ERROR: Los penales no pueden terminar en empate.");
+                }
+
+                // Guardar marcador de penales
+                partido.setGolesPenalesLocal(penalesLocal);
+                partido.setGolesPenalesVisitante(penalesVisitante);
+
+                // Calcular ganador basado en penales
+                if (penalesLocal > penalesVisitante) {
+                    partido.setGanador(partido.getEquipoLocal());
+                } else {
+                    partido.setGanador(partido.getEquipoVisitante());
+                }
+            }
+        }
+
         partidoRepo.save(partido);
 
-        // A. Actualizar puntos de usuarios que apostaron en este partido
+        // 3. Actualizar Puntos Usuarios
         List<Prediccion> apuestas = prediccionRepo.findByPartidoId(partido.getId());
         for (Prediccion p : apuestas) {
             puntosService.recalcularPuntosUsuario(p.getUsuario().getId());
         }
 
-        StringBuilder mensaje = new StringBuilder("Resultado guardado. Puntos actualizados para " + apuestas.size() + " usuarios. ");
-        Fase faseActual = partido.getFase();
+        StringBuilder mensaje = new StringBuilder("Resultado guardado. ");
 
-        // B. Avanzar Ganador (Solo fases eliminatorias)
-        if (!FASE_GRUPOS.equalsIgnoreCase(faseActual.getNombre())) {
-            Equipo ganador = determinarGanador(partido);
-            if (ganador != null) {
-                String avanceMsg = avanzarSiguienteRonda(partido.getNumeroPartido(), ganador);
-                mensaje.append(avanceMsg);
-            }
+        // 4. Avanzar Ronda (Bracket)
+        if (!esFaseGrupos && partido.getGanador() != null) {
+            String avanceMsg = avanzarSiguienteRonda(partido.getNumeroPartido(), partido.getGanador());
+            mensaje.append(avanceMsg);
         }
 
-        // C. Verificar Fin de Fase
-        boolean faseTerminada = partidoRepo.findByFaseIdOrderByFechaPartidoAsc(faseActual.getId())
+        // 5. Verificar Cierre de Fase
+        boolean faseTerminada = partidoRepo.findByFaseIdOrderByFechaPartidoAsc(partido.getFase().getId())
                 .stream()
-                .noneMatch(p -> !AppConstants.ESTADO_FINALIZADO.equals(p.getEstado()));
+                .allMatch(p -> AppConstants.ESTADO_FINALIZADO.equals(p.getEstado()));
 
         if (faseTerminada) {
-            mensaje.append(cerrarFase(faseActual.getId()));
+            mensaje.append(cerrarFase(partido.getFase().getId()));
         }
 
         return mensaje.toString();
     }
 
     // ==========================================
-    // 2. GESTIÓN DE RESULTADOS ESPECIALES (CAMPEÓN / GOLEADOR)
+    // MÉTODOS DE APOYO (Idénticos al flujo original)
     // ==========================================
     @Transactional
     public String procesarPuntosCampeon(Long equipoId) {
-        Equipo campeon = equipoRepo.findById(equipoId)
-                .orElseThrow(() -> new RuntimeException("Equipo no encontrado"));
-
-        // 1. Guardar la verdad oficial (Tabla dedicada)
+        Equipo campeon = equipoRepo.findById(equipoId).orElseThrow();
         ResultadoOficial resultado = resultadoRepo.findById(1L).orElse(new ResultadoOficial());
-        resultado.setId(1L);
-        resultado.setEquipoCampeon(campeon);
+        resultado.setId(1L); resultado.setEquipoCampeon(campeon);
         resultadoRepo.save(resultado);
-
-        // 2. Recalcular puntos masivamente
-        int c = recalcularMasivoUsuarios();
-        return "Campeón registrado: " + campeon.getNombre() + ". Puntos actualizados a " + c + " usuarios.";
+        recalcularMasivoUsuarios();
+        return "Campeón registrado.";
     }
 
     @Transactional
     public String procesarPuntosGoleador(Long jugadorId) {
-        Jugador goleador = jugadorRepo.findById(jugadorId)
-                .orElseThrow(() -> new RuntimeException("Jugador no encontrado"));
-
-        // 1. Guardar la verdad oficial
+        Jugador goleador = jugadorRepo.findById(jugadorId).orElseThrow();
         ResultadoOficial resultado = resultadoRepo.findById(1L).orElse(new ResultadoOficial());
-        resultado.setId(1L);
-        resultado.setJugadorGoleador(goleador);
+        resultado.setId(1L); resultado.setJugadorGoleador(goleador);
         resultadoRepo.save(resultado);
-
-        // 2. Recalcular puntos masivamente
-        int c = recalcularMasivoUsuarios();
-        return "Goleador registrado: " + goleador.getNombre() + ". Puntos actualizados a " + c + " usuarios.";
+        recalcularMasivoUsuarios();
+        return "Goleador registrado.";
     }
 
-    // Helper para recalcular a todos los usuarios "ROLE_USER"
     private int recalcularMasivoUsuarios() {
-        int c = 0;
         List<Usuario> usuarios = usuarioRepo.findAll();
+        int c = 0;
         for (Usuario u : usuarios) {
             if (u.getRol() != null && AppConstants.ROLE_USER.equals(u.getRol().getNombre())) {
                 puntosService.recalcularPuntosUsuario(u.getId());
@@ -143,181 +154,196 @@ public class TorneoService {
         return c;
     }
 
-    // ==========================================
-    // 3. GESTIÓN DE FASES Y CRUCES
-    // ==========================================
     @Transactional
     public String cerrarFase(Long faseId) {
         Fase fase = faseRepo.findById(faseId).orElseThrow();
-
         if (AppConstants.FASE_CERRADA.equals(fase.getEstado())) return " (Fase ya cerrada).";
-
         fase.setEstado(AppConstants.FASE_CERRADA);
         faseRepo.save(fase);
 
-        String nombre = fase.getNombre();
-
-        if (FASE_GRUPOS.equalsIgnoreCase(nombre)) {
+        if (AppConstants.FASE_GRUPOS.equalsIgnoreCase(fase.getNombre())) {
             generarLlavesDieciseisavos();
-            recalcularMasivoUsuarios(); // Da los puntos de clasificados
-        } else if (FASE_16.equalsIgnoreCase(nombre)) abrirFase(FASE_8);
-        else if (FASE_8.equalsIgnoreCase(nombre)) abrirFase(FASE_4);
-        else if (FASE_4.equalsIgnoreCase(nombre)) abrirFase(FASE_SEMIS);
-        else if (FASE_SEMIS.equalsIgnoreCase(nombre)) {
-            abrirFase(FASE_3ER);
-            abrirFase(FASE_FINAL);
+            recalcularMasivoUsuarios();
+        } else if (AppConstants.FASE_DIECISEISAVOS.equalsIgnoreCase(fase.getNombre())) abrirFase(AppConstants.FASE_OCTAVOS);
+        else if (AppConstants.FASE_OCTAVOS.equalsIgnoreCase(fase.getNombre())) abrirFase(AppConstants.FASE_CUARTOS);
+        else if (AppConstants.FASE_CUARTOS.equalsIgnoreCase(fase.getNombre())) abrirFase(AppConstants.FASE_SEMIFINALES);
+        else if (AppConstants.FASE_SEMIFINALES.equalsIgnoreCase(fase.getNombre())) {
+            abrirFase(AppConstants.FASE_TERCER_PUESTO);
+            abrirFase(AppConstants.FASE_FINAL);
         }
-
-        return " Fase " + nombre + " cerrada.";
+        return " Fase cerrada.";
     }
 
-    private void abrirFase(String nombreFase) {
-        faseRepo.findByNombre(nombreFase).ifPresent(f -> {
-            f.setEstado(AppConstants.FASE_ABIERTA);
-            faseRepo.save(f);
-        });
+    private void abrirFase(String nombre) {
+        faseRepo.findByNombre(nombre).ifPresent(f -> { f.setEstado(AppConstants.FASE_ABIERTA); faseRepo.save(f); });
+    }
+
+    // --- BRACKET LOGIC ---
+    private String avanzarSiguienteRonda(int numeroPartidoActual, Equipo ganador) {
+        Integer siguientePartidoId = null;
+        boolean finalLocal = true;
+
+        if (numeroPartidoActual == 73) { siguientePartidoId = 90; finalLocal = true; }
+        else if (numeroPartidoActual == 74) { siguientePartidoId = 89; finalLocal = true; }
+        else if (numeroPartidoActual == 75) { siguientePartidoId = 90; finalLocal = false; }
+        else if (numeroPartidoActual == 76) { siguientePartidoId = 91; finalLocal = true; }
+        else if (numeroPartidoActual == 77) { siguientePartidoId = 89; finalLocal = false; }
+        else if (numeroPartidoActual == 78) { siguientePartidoId = 91; finalLocal = false; }
+        else if (numeroPartidoActual == 79) { siguientePartidoId = 92; finalLocal = true; }
+        else if (numeroPartidoActual == 80) { siguientePartidoId = 92; finalLocal = false; }
+        else if (numeroPartidoActual == 81) { siguientePartidoId = 94; finalLocal = true; }
+        else if (numeroPartidoActual == 82) { siguientePartidoId = 94; finalLocal = false; }
+        else if (numeroPartidoActual == 83) { siguientePartidoId = 93; finalLocal = true; }
+        else if (numeroPartidoActual == 84) { siguientePartidoId = 93; finalLocal = false; }
+        else if (numeroPartidoActual == 85) { siguientePartidoId = 96; finalLocal = true; }
+        else if (numeroPartidoActual == 86) { siguientePartidoId = 95; finalLocal = true; }
+        else if (numeroPartidoActual == 87) { siguientePartidoId = 96; finalLocal = false; }
+        else if (numeroPartidoActual == 88) { siguientePartidoId = 95; finalLocal = false; }
+
+        else if (numeroPartidoActual == 89) { siguientePartidoId = 97; finalLocal = true; }
+        else if (numeroPartidoActual == 90) { siguientePartidoId = 97; finalLocal = false; }
+        else if (numeroPartidoActual == 91) { siguientePartidoId = 99; finalLocal = true; }
+        else if (numeroPartidoActual == 92) { siguientePartidoId = 99; finalLocal = false; }
+        else if (numeroPartidoActual == 93) { siguientePartidoId = 98; finalLocal = true; }
+        else if (numeroPartidoActual == 94) { siguientePartidoId = 98; finalLocal = false; }
+        else if (numeroPartidoActual == 95) { siguientePartidoId = 100; finalLocal = true; }
+        else if (numeroPartidoActual == 96) { siguientePartidoId = 100; finalLocal = false; }
+
+        else if (numeroPartidoActual == 97) { siguientePartidoId = 101; finalLocal = true; }
+        else if (numeroPartidoActual == 98) { siguientePartidoId = 101; finalLocal = false; }
+        else if (numeroPartidoActual == 99) { siguientePartidoId = 102; finalLocal = true; }
+        else if (numeroPartidoActual == 100) { siguientePartidoId = 102; finalLocal = false; }
+
+        else if (numeroPartidoActual == 101 || numeroPartidoActual == 102) {
+            siguientePartidoId = 104;
+            finalLocal = (numeroPartidoActual == 101);
+            boolean finalLocal3ro = finalLocal;
+
+            partidoRepo.findByNumeroPartido(numeroPartidoActual).ifPresent(pActual -> {
+                Equipo perdedor = pActual.getGanador().getId().equals(pActual.getEquipoLocal().getId())
+                        ? pActual.getEquipoVisitante() : pActual.getEquipoLocal();
+
+                partidoRepo.findByNumeroPartido(103).ifPresent(p3 -> {
+                    if (finalLocal3ro) p3.setEquipoLocal(perdedor);
+                    else p3.setEquipoVisitante(perdedor);
+                    partidoRepo.save(p3);
+                });
+            });
+        }
+
+        if (siguientePartidoId != null) {
+            boolean esLocal = finalLocal;
+            Optional<Partido> matchOpt = partidoRepo.findByNumeroPartido(siguientePartidoId);
+            if (matchOpt.isPresent()) {
+                Partido siguiente = matchOpt.get();
+                if (esLocal) siguiente.setEquipoLocal(ganador);
+                else siguiente.setEquipoVisitante(ganador);
+                partidoRepo.save(siguiente);
+                return " -> Avanza " + ganador.getNombre();
+            }
+        }
+        return "";
     }
 
     private String generarLlavesDieciseisavos() {
-        abrirFase(FASE_16);
-        Map<String, List<PosicionDTO>> grupos = calcularTablaPosicionesPorGrupo();
+        abrirFase(AppConstants.FASE_DIECISEISAVOS);
+        Map<String, List<PosicionDTO>> tablas = calcularTablaPosicionesPorGrupo();
+        Map<String, Equipo> primeros = new HashMap<>();
+        Map<String, Equipo> segundos = new HashMap<>();
+        List<PosicionDTO> todosTerceros = new ArrayList<>();
 
-        List<Equipo> primeros = new ArrayList<>();
-        List<Equipo> segundos = new ArrayList<>();
-        List<PosicionDTO> tercerosCandidatos = new ArrayList<>();
-
-        grupos.forEach((nombre, lista) -> {
-            if (lista.size() >= 1) primeros.add(equipoRepo.findById(lista.get(0).getEquipoId()).orElse(null));
-            if (lista.size() >= 2) segundos.add(equipoRepo.findById(lista.get(1).getEquipoId()).orElse(null));
-            if (lista.size() >= 3) tercerosCandidatos.add(lista.get(2));
+        tablas.forEach((grupo, lista) -> {
+            if (!lista.isEmpty()) primeros.put(grupo, equipoRepo.findById(lista.get(0).getEquipoId()).orElse(null));
+            if (lista.size() >= 2) segundos.put(grupo, equipoRepo.findById(lista.get(1).getEquipoId()).orElse(null));
+            if (lista.size() >= 3) todosTerceros.add(lista.get(2));
         });
 
-        // Ordenar terceros por puntos, diferencia de gol, goles a favor
-        tercerosCandidatos.sort((a, b) -> {
+        todosTerceros.sort((a, b) -> {
             if (a.getPuntos() != b.getPuntos()) return b.getPuntos() - a.getPuntos();
             if (a.getDiferenciaGoles() != b.getDiferenciaGoles()) return b.getDiferenciaGoles() - a.getDiferenciaGoles();
             return b.getGolesFavor() - a.getGolesFavor();
         });
 
-        List<Equipo> mejoresTerceros = tercerosCandidatos.stream()
-                .limit(8)
+        List<Equipo> mejoresTerceros = todosTerceros.stream().limit(8)
                 .map(dto -> equipoRepo.findById(dto.getEquipoId()).orElse(null))
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList());
 
-        List<Equipo> clasificados = new ArrayList<>();
-        clasificados.addAll(primeros);
-        clasificados.addAll(segundos);
-        clasificados.addAll(mejoresTerceros);
-        clasificados.removeIf(Objects::isNull);
+        asignarPartido(73, segundos.get(AppConstants.GRUPO_A), segundos.get(AppConstants.GRUPO_B));
+        asignarPartido(75, primeros.get(AppConstants.GRUPO_F), segundos.get(AppConstants.GRUPO_C));
+        asignarPartido(76, primeros.get(AppConstants.GRUPO_C), segundos.get(AppConstants.GRUPO_F));
+        asignarPartido(78, segundos.get(AppConstants.GRUPO_E), segundos.get(AppConstants.GRUPO_I));
+        asignarPartido(83, segundos.get(AppConstants.GRUPO_K), segundos.get(AppConstants.GRUPO_L));
+        asignarPartido(84, primeros.get(AppConstants.GRUPO_H), segundos.get(AppConstants.GRUPO_J));
+        asignarPartido(86, primeros.get(AppConstants.GRUPO_J), segundos.get(AppConstants.GRUPO_H));
+        asignarPartido(88, segundos.get(AppConstants.GRUPO_D), segundos.get(AppConstants.GRUPO_G));
 
-        List<Partido> partidos16 = partidoRepo.findByFaseNombreIgnoreCaseOrderByFechaPartidoAsc(FASE_16);
+        Map<Integer, String> llavesConTerceros = getIntegerStringMap();
+        Map<Integer, Equipo> asignacionResuelta = resolverCrucesTerceros(llavesConTerceros, mejoresTerceros);
 
-        int matchIdx = 0;
-        for (int i = 0; i < clasificados.size() - 1; i += 2) {
-            if (matchIdx < partidos16.size()) {
-                Partido p = partidos16.get(matchIdx++);
-                p.setEquipoLocal(clasificados.get(i));
-                p.setEquipoVisitante(clasificados.get(i + 1));
-                partidoRepo.save(p);
-                // Si el equipo es Palo, al clasificar a 16avos no suma puntos aquí,
-                // los sumará al recalcular usuarios tras cerrar la fase.
-            }
-        }
-        return " Cruces generados.";
+        asignacionResuelta.forEach((nPartido, equipoTercero) -> {
+            String grupoCabeza = llavesConTerceros.get(nPartido);
+            Equipo equipoCabeza = primeros.get(grupoCabeza);
+            asignarPartido(nPartido, equipoCabeza, equipoTercero);
+        });
+
+        return "Cruces 16avos OK.";
     }
 
-    // ==========================================
-    // 4. BRACKET Y HELPERS
-    // ==========================================
-    private String avanzarSiguienteRonda(int numeroPartidoActual, Equipo ganador) {
-        Integer siguientePartidoId = null;
-        boolean esLocal = true;
-
-        // 16avos -> Octavos
-        if (numeroPartidoActual == 73) { siguientePartidoId = 89; esLocal = true; }
-        else if (numeroPartidoActual == 74) { siguientePartidoId = 89; esLocal = false; }
-        else if (numeroPartidoActual == 75) { siguientePartidoId = 90; esLocal = true; }
-        else if (numeroPartidoActual == 76) { siguientePartidoId = 90; esLocal = false; }
-        else if (numeroPartidoActual == 77) { siguientePartidoId = 91; esLocal = true; }
-        else if (numeroPartidoActual == 78) { siguientePartidoId = 91; esLocal = false; }
-        else if (numeroPartidoActual == 79) { siguientePartidoId = 92; esLocal = true; }
-        else if (numeroPartidoActual == 80) { siguientePartidoId = 92; esLocal = false; }
-        else if (numeroPartidoActual == 81) { siguientePartidoId = 93; esLocal = true; }
-        else if (numeroPartidoActual == 82) { siguientePartidoId = 93; esLocal = false; }
-        else if (numeroPartidoActual == 83) { siguientePartidoId = 94; esLocal = true; }
-        else if (numeroPartidoActual == 84) { siguientePartidoId = 94; esLocal = false; }
-        else if (numeroPartidoActual == 85) { siguientePartidoId = 95; esLocal = true; }
-        else if (numeroPartidoActual == 86) { siguientePartidoId = 95; esLocal = false; }
-        else if (numeroPartidoActual == 87) { siguientePartidoId = 96; esLocal = true; }
-        else if (numeroPartidoActual == 88) { siguientePartidoId = 96; esLocal = false; }
-
-        // Octavos -> Cuartos
-        else if (numeroPartidoActual == 89) { siguientePartidoId = 97; esLocal = true; }
-        else if (numeroPartidoActual == 90) { siguientePartidoId = 97; esLocal = false; }
-        else if (numeroPartidoActual == 91) { siguientePartidoId = 98; esLocal = true; }
-        else if (numeroPartidoActual == 92) { siguientePartidoId = 98; esLocal = false; }
-        else if (numeroPartidoActual == 93) { siguientePartidoId = 99; esLocal = true; }
-        else if (numeroPartidoActual == 94) { siguientePartidoId = 99; esLocal = false; }
-        else if (numeroPartidoActual == 95) { siguientePartidoId = 100; esLocal = true; }
-        else if (numeroPartidoActual == 96) { siguientePartidoId = 100; esLocal = false; }
-
-        // Cuartos -> Semis
-        else if (numeroPartidoActual == 97) { siguientePartidoId = 101; esLocal = true; }
-        else if (numeroPartidoActual == 98) { siguientePartidoId = 101; esLocal = false; }
-        else if (numeroPartidoActual == 99) { siguientePartidoId = 102; esLocal = true; }
-        else if (numeroPartidoActual == 100) { siguientePartidoId = 102; esLocal = false; }
-
-        // Semis -> Final y 3er Puesto
-        else if (numeroPartidoActual == 101 || numeroPartidoActual == 102) {
-            siguientePartidoId = 104; // Final
-            esLocal = (numeroPartidoActual == 101);
-
-            // Perdedor al 3er Puesto (103)
-            Optional<Partido> pActualOpt = partidoRepo.findAll().stream()
-                    .filter(p -> p.getNumeroPartido() != null && p.getNumeroPartido() == numeroPartidoActual)
-                    .findFirst();
-
-            if (pActualOpt.isPresent()) {
-                Partido pActual = pActualOpt.get();
-                Equipo perdedor = pActual.getGolesLocalReal() > pActual.getGolesVisitanteReal()
-                        ? pActual.getEquipoVisitante() : pActual.getEquipoLocal();
-
-                final boolean esLocal3ro = esLocal;
-                partidoRepo.findAll().stream()
-                        .filter(p -> p.getNumeroPartido() != null && p.getNumeroPartido() == 103)
-                        .findFirst()
-                        .ifPresent(p3 -> {
-                            if (esLocal3ro) p3.setEquipoLocal(perdedor);
-                            else p3.setEquipoVisitante(perdedor);
-                            partidoRepo.save(p3);
-                        });
-            }
-        }
-
-        if (siguientePartidoId != null) {
-            Integer finalSig = siguientePartidoId;
-            Boolean finalLocal = esLocal;
-
-            Optional<Partido> matchOpt = partidoRepo.findAll().stream()
-                    .filter(p -> p.getNumeroPartido() != null && p.getNumeroPartido().equals(finalSig))
-                    .findFirst();
-
-            if (matchOpt.isPresent()) {
-                Partido siguiente = matchOpt.get();
-                if (finalLocal) siguiente.setEquipoLocal(ganador);
-                else siguiente.setEquipoVisitante(ganador);
-                partidoRepo.save(siguiente);
-                return " Ganador " + ganador.getNombre() + " avanza al partido #" + finalSig;
-            }
-        }
-        return " Fin torneo.";
+    private static Map<Integer, String> getIntegerStringMap() {
+        Map<Integer, String> llaves = new LinkedHashMap<>();
+        llaves.put(74, AppConstants.GRUPO_E); llaves.put(77, AppConstants.GRUPO_I);
+        llaves.put(79, AppConstants.GRUPO_A); llaves.put(80, AppConstants.GRUPO_L);
+        llaves.put(81, AppConstants.GRUPO_D); llaves.put(82, AppConstants.GRUPO_G);
+        llaves.put(85, AppConstants.GRUPO_B); llaves.put(87, AppConstants.GRUPO_K);
+        return llaves;
     }
 
+    private void asignarPartido(int numeroPartido, Equipo local, Equipo visitante) {
+        if (local == null || visitante == null) return;
+        partidoRepo.findAll().stream()
+                .filter(p -> p.getNumeroPartido() != null && p.getNumeroPartido() == numeroPartido)
+                .findFirst().ifPresent(p -> {
+                    p.setEquipoLocal(local);
+                    p.setEquipoVisitante(visitante);
+                    partidoRepo.save(p);
+                });
+    }
+
+    private Map<Integer, Equipo> resolverCrucesTerceros(Map<Integer, String> llaves, List<Equipo> tercerosDisponibles) {
+        Map<Integer, Equipo> solucion = new HashMap<>();
+        List<Integer> ordenPartidos = new ArrayList<>(llaves.keySet());
+        if (!backtrackAsignacion(0, ordenPartidos, llaves, new ArrayList<>(tercerosDisponibles), solucion)) {
+            for (int i = 0; i < ordenPartidos.size(); i++) {
+                if(i < tercerosDisponibles.size()) solucion.put(ordenPartidos.get(i), tercerosDisponibles.get(i));
+            }
+        }
+        return solucion;
+    }
+
+    private boolean backtrackAsignacion(int indice, List<Integer> partidos, Map<Integer, String> infoCabezas,
+                                        List<Equipo> tercerosRestantes, Map<Integer, Equipo> solucionActual) {
+        if (indice == partidos.size()) return true;
+        int nPartido = partidos.get(indice);
+        String grupoCabezaSerie = infoCabezas.get(nPartido);
+        for (int i = 0; i < tercerosRestantes.size(); i++) {
+            Equipo tercero = tercerosRestantes.get(i);
+            String grupoTercero = (tercero.getGrupo() != null) ? tercero.getGrupo().getNombre() : "";
+            if (!grupoCabezaSerie.equalsIgnoreCase(grupoTercero)) {
+                solucionActual.put(nPartido, tercero);
+                Equipo removido = tercerosRestantes.remove(i);
+                if (backtrackAsignacion(indice + 1, partidos, infoCabezas, tercerosRestantes, solucionActual)) return true;
+                tercerosRestantes.add(i, removido);
+                solucionActual.remove(nPartido);
+            }
+        }
+        return false;
+    }
+
+    // ... Helpers de Estadísticas, Sorteo, Corrección Llaves ...
     public Map<String, List<PosicionDTO>> calcularTablaPosicionesPorGrupo() {
         Map<Long, PosicionDTO> stats = calcularEstadisticasBase();
         Map<String, List<PosicionDTO>> tablaPorGrupo = new TreeMap<>();
-
         for (PosicionDTO dto : stats.values()) {
             equipoRepo.findById(dto.getEquipoId()).ifPresent(equipo -> {
                 if (equipo.getGrupo() != null) {
@@ -327,138 +353,60 @@ public class TorneoService {
                 }
             });
         }
-        for (List<PosicionDTO> grupo : tablaPorGrupo.values()) {
-            grupo.sort(this::compararEquiposOlimpico);
-        }
+        for (List<PosicionDTO> grupo : tablaPorGrupo.values()) grupo.sort(this::compararEquiposOlimpico);
         return tablaPorGrupo;
     }
 
-    // ✅ MÉTODO RESTAURADO PARA ARREGLAR EL ERROR DEL CONTROLLER
-    @Transactional
-    public String corregirLlaveFaseFinal(Long partidoId, Long localId, Long visitanteId) {
-        Partido partido = partidoRepo.findById(partidoId)
-                .orElseThrow(() -> new RuntimeException("Partido no encontrado"));
-
-        Equipo local = equipoRepo.findById(localId)
-                .orElseThrow(() -> new RuntimeException("Equipo Local no encontrado"));
-
-        Equipo visitante = equipoRepo.findById(visitanteId)
-                .orElseThrow(() -> new RuntimeException("Equipo Visitante no encontrado"));
-
-        partido.setEquipoLocal(local);
-        partido.setEquipoVisitante(visitante);
-        partidoRepo.save(partido);
-        return "Llave corregida: " + local.getNombre() + " vs " + visitante.getNombre();
-    }
-
-    @Transactional
-    public String sortearPalos() {
-        List<Equipo> palos = equipoRepo.findByEsCandidatoPaloTrue();
-        if (palos.isEmpty()) return "Error: No hay equipos candidatos a palo.";
-
-        List<Usuario> usuarios = usuarioRepo.findAll().stream()
-                .filter(u -> u.getRol() != null && AppConstants.ROLE_USER.equals(u.getRol().getNombre()))
-                .collect(Collectors.toList());
-
-        Collections.shuffle(palos);
-        int idx = 0;
-        int asignados = 0;
-
-        for (Usuario u : usuarios) {
-            PrediccionEspecial pe = prediccionEspecialRepo.findByUsuarioId(u.getId())
-                    .orElse(new PrediccionEspecial());
-            pe.setUsuario(u);
-
-            if (pe.getEquipoPalo() == null) {
-                if (idx >= palos.size()) {
-                    idx = 0;
-                    Collections.shuffle(palos);
-                }
-                pe.setEquipoPalo(palos.get(idx++));
-                prediccionEspecialRepo.save(pe);
-                asignados++;
-            }
-        }
-        return "Sorteo completado. Palos asignados: " + asignados;
-    }
-
-    // --- Helpers privados ---
-
     private Map<Long, PosicionDTO> calcularEstadisticasBase() {
         Map<Long, PosicionDTO> stats = new HashMap<>();
-
-        // Inicializar DTOs para todos los equipos
-        equipoRepo.findAll().stream()
-                .filter(e -> e.getGrupo() != null)
-                .forEach(e -> {
-                    PosicionDTO dto = new PosicionDTO();
-                    dto.setEquipoId(e.getId());
-                    dto.setNombreEquipo(e.getNombre());
-                    dto.setUrlEscudo(e.getUrlEscudo());
-                    // Inicializamos la lista para evitar NullPointerException
-                    dto.setResultados(new ArrayList<>());
-                    stats.put(e.getId(), dto);
-                });
-
-        // Procesar partidos de grupos FINALIZADOS en orden cronológico
-        partidoRepo.findAllByOrderByFechaPartidoAsc().stream() // <--- IMPORTANTE: Ordenar por fecha
+        equipoRepo.findAll().stream().filter(e -> e.getGrupo() != null).forEach(e -> {
+            PosicionDTO dto = new PosicionDTO();
+            dto.setEquipoId(e.getId());
+            dto.setNombreEquipo(e.getNombre());
+            dto.setUrlEscudo(e.getUrlEscudo());
+            dto.setResultados(new ArrayList<>());
+            stats.put(e.getId(), dto);
+        });
+        partidoRepo.findAllByOrderByFechaPartidoAsc().stream()
                 .filter(p -> AppConstants.ESTADO_FINALIZADO.equals(p.getEstado()) &&
-                        FASE_GRUPOS.equals(p.getFase().getNombre()))
+                        AppConstants.FASE_GRUPOS.equals(p.getFase().getNombre()))
                 .forEach(p -> actualizarEstadisticasPartido(p, stats));
-
         return stats;
     }
 
     private void actualizarEstadisticasPartido(Partido p, Map<Long, PosicionDTO> stats) {
         if (p.getEquipoLocal() == null || p.getEquipoVisitante() == null) return;
-
         PosicionDTO l = stats.get(p.getEquipoLocal().getId());
         PosicionDTO v = stats.get(p.getEquipoVisitante().getId());
-
-        // Si por alguna razón no están en el mapa (ej: equipos eliminados/borrados), salimos
         if (l == null || v == null) return;
 
         int gl = p.getGolesLocalReal();
         int gv = p.getGolesVisitanteReal();
 
-        // Actualizar Estadísticas Numéricas
         l.setPartidosJugados(l.getPartidosJugados() + 1);
         v.setPartidosJugados(v.getPartidosJugados() + 1);
-
         l.setGolesFavor(l.getGolesFavor() + gl);
         l.setGolesContra(l.getGolesContra() + gv);
         l.setDiferenciaGoles(l.getGolesFavor() - l.getGolesContra());
-
         v.setGolesFavor(v.getGolesFavor() + gv);
         v.setGolesContra(v.getGolesContra() + gl);
         v.setDiferenciaGoles(v.getGolesFavor() - v.getGolesContra());
 
-        // Lógica de Puntos y RACHA (Resultados)
         if (gl > gv) {
-            // Gana Local
-            l.setPuntos(l.getPuntos() + 3);
-            l.setPartidosGanados(l.getPartidosGanados() + 1);
-            l.getResultados().add("G"); // <--- NUEVO
-
+            l.setPuntos(l.getPuntos() + 3); l.setPartidosGanados(l.getPartidosGanados() + 1);
+            l.getResultados().add(AppConstants.PARTIDO_GANADO);
             v.setPartidosPerdidos(v.getPartidosPerdidos() + 1);
-            v.getResultados().add("P"); // <--- NUEVO
+            v.getResultados().add(AppConstants.PARTIDO_PERDIDO);
         } else if (gv > gl) {
-            // Gana Visitante
-            v.setPuntos(v.getPuntos() + 3);
-            v.setPartidosGanados(v.getPartidosGanados() + 1);
-            v.getResultados().add("G"); // <--- NUEVO
-
+            v.setPuntos(v.getPuntos() + 3); v.setPartidosGanados(v.getPartidosGanados() + 1);
+            v.getResultados().add(AppConstants.PARTIDO_GANADO);
             l.setPartidosPerdidos(l.getPartidosPerdidos() + 1);
-            l.getResultados().add("P"); // <--- NUEVO
+            l.getResultados().add(AppConstants.PARTIDO_PERDIDO);
         } else {
-            // Empate
-            l.setPuntos(l.getPuntos() + 1);
-            l.setPartidosEmpatados(l.getPartidosEmpatados() + 1);
-            l.getResultados().add("E"); // <--- NUEVO
-
-            v.setPuntos(v.getPuntos() + 1);
-            v.setPartidosEmpatados(v.getPartidosEmpatados() + 1);
-            v.getResultados().add("E"); // <--- NUEVO
+            l.setPuntos(l.getPuntos() + 1); l.setPartidosEmpatados(l.getPartidosEmpatados() + 1);
+            l.getResultados().add(AppConstants.PARTIDO_EMPATADO);
+            v.setPuntos(v.getPuntos() + 1); v.setPartidosEmpatados(v.getPartidosEmpatados() + 1);
+            v.getResultados().add(AppConstants.PARTIDO_EMPATADO);
         }
     }
 
@@ -468,9 +416,40 @@ public class TorneoService {
         return b.getGolesFavor() - a.getGolesFavor();
     }
 
-    private Equipo determinarGanador(Partido p) {
-        if (p.getGolesLocalReal() > p.getGolesVisitanteReal()) return p.getEquipoLocal();
-        if (p.getGolesVisitanteReal() > p.getGolesLocalReal()) return p.getEquipoVisitante();
-        return null;
+    @Transactional
+    public String corregirLlaveFaseFinal(Long pId, Long lId, Long vId) {
+        Partido p = partidoRepo.findById(pId).orElseThrow();
+        p.setEquipoLocal(equipoRepo.findById(lId).orElseThrow());
+        p.setEquipoVisitante(equipoRepo.findById(vId).orElseThrow());
+        partidoRepo.save(p);
+        return "OK";
+    }
+
+    @Transactional
+    public String sortearPalos() {
+        List<Equipo> palos = equipoRepo.findByEsCandidatoPaloTrue();
+        if (palos.isEmpty()) return AppConstants.ERR_EQUIPO_PALO_NO_ENCONTRADO;
+        List<Usuario> usuarios = usuarioRepo.findAll().stream()
+                .filter(u -> u.getRol() != null && AppConstants.ROLE_USER.equals(u.getRol().getNombre()))
+                .toList();
+        Collections.shuffle(palos);
+        int idx = 0;
+        int asignados = 0;
+        for (Usuario u : usuarios) {
+            PrediccionEspecial pe = prediccionEspecialRepo.findByUsuarioId(u.getId()).orElse(new PrediccionEspecial());
+            pe.setUsuario(u);
+            if (pe.getEquipoPalo() == null) {
+                if (idx >= palos.size()) { idx = 0; Collections.shuffle(palos); }
+                pe.setEquipoPalo(palos.get(idx++));
+                prediccionEspecialRepo.save(pe);
+                asignados++;
+            }
+        }
+        return "Sorteo OK. Asignados: " + asignados;
+    }
+
+    public boolean esTorneoFinalizado() {
+        return resultadoRepo.existsById(1L) && partidoRepo.findByNumeroPartido(104)
+                .map(p -> AppConstants.ESTADO_FINALIZADO.equals(p.getEstado())).orElse(false);
     }
 }

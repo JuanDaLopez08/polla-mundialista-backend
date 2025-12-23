@@ -14,8 +14,8 @@ public class ClasificadosDTO {
     @NotNull(message = "El ID del grupo es obligatorio")
     private Long grupoId;
 
-    // Lista de IDs de los equipos que el usuario dice que clasifican
-    // Ej: [1, 3] (México y Corea)
+    // Lista de ID de los equipos que el usuario dice que clasifican
+    // Ejemplo: [1, 3] (México y Corea)
     @NotNull(message = "Debes seleccionar equipos")
     @Size(min = 1, message = "Debes seleccionar al menos un equipo")
     private List<Long> equiposIds;

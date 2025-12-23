@@ -13,12 +13,10 @@ public class Partido {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    // RELACIÓN: Muchos partidos pertenecen a UNA fase
     @ManyToOne
     @JoinColumn(name = "fase_id", nullable = false)
     private Fase fase;
 
-    // Equipos pueden ser NULL al principio (ej: Octavos de final antes de definirse)
     @ManyToOne
     @JoinColumn(name = "equipo_local_id")
     private Equipo equipoLocal;
@@ -30,19 +28,28 @@ public class Partido {
     @Column(nullable = false)
     private LocalDateTime fechaPartido;
 
-    // RELACIÓN: El partido se juega en un Estadio específico (Tabla Estadios)
     @ManyToOne
     @JoinColumn(name = "estadio_id")
     private Estadio estadio;
 
-    // Número oficial del partido según FIFA (1 al 104)
     @Column(name = "numero_partido", unique = true)
     private Integer numeroPartido;
 
-    // Resultados reales
+    // Resultados Tiempo Regular + Extra
     private Integer golesLocalReal;
     private Integer golesVisitanteReal;
 
+    // ==========================================
+    // NUEVOS CAMPOS: PENALES
+    // ==========================================
+    private Integer golesPenalesLocal;
+    private Integer golesPenalesVisitante;
+
     @Column(nullable = false)
-    private String estado; // "PROGRAMADO", "EN_JUEGO", "FINALIZADO"
+    private String estado;
+
+    // Ganador oficial (Calculado por goles o penales)
+    @ManyToOne
+    @JoinColumn(name = "ganador_id")
+    private Equipo ganador;
 }

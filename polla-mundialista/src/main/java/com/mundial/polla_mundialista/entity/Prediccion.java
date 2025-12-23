@@ -33,7 +33,7 @@ public class Prediccion {
     private Integer golesVisitantePredicho;
 
     // AUDITORÍA: Solo guarda el momento exacto en que el usuario dio clic a "Guardar".
-    // La validación de si "está a tiempo o no" se hará comparando esta fecha
+    // La validación de sí "está a tiempo o no" se hará comparando esta fecha
     // contra la fecha de la FASE del partido.
     @Column(nullable = false)
     private LocalDateTime fechaRegistro = LocalDateTime.now();
