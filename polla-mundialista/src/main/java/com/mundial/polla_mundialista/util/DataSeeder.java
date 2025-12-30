@@ -3,6 +3,7 @@ package com.mundial.polla_mundialista.util;
 import com.mundial.polla_mundialista.entity.*;
 import com.mundial.polla_mundialista.repository.*;
 import com.mundial.polla_mundialista.util.AppConstants;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
@@ -11,6 +12,15 @@ import java.time.LocalDateTime;
 
 @Component
 public class DataSeeder implements CommandLineRunner {
+
+    @Value("${polla.app.admin.username}")
+    private String adminUsername;
+
+    @Value("${polla.app.admin.email}")
+    private String adminEmail;
+
+    @Value("${polla.app.admin.password}")
+    private String adminPassword;
 
     private final RolRepository rolRepo;
     private final UsuarioRepository usuarioRepo;
@@ -55,7 +65,7 @@ public class DataSeeder implements CommandLineRunner {
             // 2. CONFIGURACIÓN (Actualizada con nuevas reglas)
             createConfig(AppConstants.CONF_PUNTOS_EXACTO, "5");
             createConfig(AppConstants.CONF_PUNTOS_GANADOR, "3");
-            createConfig(AppConstants.CONF_PUNTOS_MARCADOR_INVERTIDO, "1"); // Nuevo: 2-0 vs 0-2
+            createConfig(AppConstants.CONF_PUNTOS_MARCADOR_INVERTIDO, "1"); // Nuevo: 2-0 vs. 0-2
             createConfig(AppConstants.CONF_PUNTOS_CLASIFICADO, "2"); // Nuevo: Acertar equipo que pasa
             createConfig(AppConstants.CONF_PUNTOS_CAMPEON, "15");
             createConfig(AppConstants.CONF_PUNTOS_GOLEADOR, "10");
@@ -63,10 +73,10 @@ public class DataSeeder implements CommandLineRunner {
 
             // 3. ADMIN
             Usuario admin = new Usuario();
-            admin.setUsername("admin");
-            admin.setEmail("admin@polla.com");
+            admin.setUsername(adminUsername);
+            admin.setEmail(adminEmail);
             // ¡AQUÍ ESTÁ LA MAGIA! Encriptamos antes de guardar
-            admin.setPassword(passwordEncoder.encode("admin123987"));
+            admin.setPassword(passwordEncoder.encode(adminPassword));
             admin.setRol(roleAdmin);
             admin.setPuntosTotales(0);
             usuarioRepo.save(admin);
@@ -90,13 +100,13 @@ public class DataSeeder implements CommandLineRunner {
             Estadio arrowhead = createEstadio("Arrowhead Stadium", "Kansas City", "USA");
 
             // 5. FASES
-            Fase grupos = createFase("Fase de Grupos", LocalDateTime.of(2026, 6, 10, 23, 59));
-            Fase dieciseisavos = createFase("Dieciseisavos de Final", LocalDateTime.of(2026, 6, 27, 23, 59));
-            Fase octavos = createFase("Octavos de Final", LocalDateTime.of(2026, 7, 3, 23, 59));
-            Fase cuartos = createFase("Cuartos de Final", LocalDateTime.of(2026, 7, 8, 23, 59));
-            Fase semis = createFase("Semifinales", LocalDateTime.of(2026, 7, 13, 23, 59));
-            Fase tercerPuesto = createFase("Tercer Puesto", LocalDateTime.of(2026, 7, 17, 23, 59));
-            Fase finalFase = createFase("Final", LocalDateTime.of(2026, 7, 18, 23, 59));
+            Fase grupos = createFase("Fase de Grupos", LocalDateTime.of(2026, 6, 10, 23, 59, 59));
+            Fase dieciseisavos = createFase("Dieciseisavos de Final", LocalDateTime.of(2026, 6, 27, 23, 59,59));
+            Fase octavos = createFase("Octavos de Final", LocalDateTime.of(2026, 7, 3, 23, 59,59));
+            Fase cuartos = createFase("Cuartos de Final", LocalDateTime.of(2026, 7, 8, 23, 59,59));
+            Fase semis = createFase("Semifinales", LocalDateTime.of(2026, 7, 13, 23, 59,59));
+            Fase tercerPuesto = createFase("Tercer Puesto", LocalDateTime.of(2026, 7, 17, 23, 59,59));
+            Fase finalFase = createFase("Final", LocalDateTime.of(2026, 7, 18, 23, 59,59));
 
             // 5.1 GRUPOS (NUEVO BLOQUE)
             Grupo grA = createGrupo("A"); Grupo grB = createGrupo("B"); Grupo grC = createGrupo("C");
@@ -167,12 +177,81 @@ public class DataSeeder implements CommandLineRunner {
             Equipo l4 = createEquipo("Panamá", "PAN", "https://flagcdn.com/w320/pa.png", true, grL); // Palo
 
             // JUGADORES (Muestra)
-            createJugador("Santiago Giménez", a1); createJugador("Vinicius Jr", c1);
-            createJugador("Neymar Jr", c1); createJugador("Kylian Mbappé", i1);
-            createJugador("Lionel Messi", j1); createJugador("Lautaro Martínez", j1);
-            createJugador("Harry Kane", l1); createJugador("Cristiano Ronaldo", k1);
-            createJugador("Luis Díaz", k4); createJugador("James Rodríguez", k4);
-            createJugador("Lamine Yamal", h1); createJugador("Jamal Musiala", e1);
+            // ===== GRUPO A =====
+            createJugador("Santiago Tomás Giménez Zolotarchuk", a1);
+            createJugador("Raúl Alonso Jiménez", a1);
+            createJugador("Hirving Rodrigo Lozano", a1);
+            createJugador("Son Heung-min", a3);
+
+// ===== GRUPO B =====
+            createJugador("Jonathan Christian David", b1);
+            createJugador("Breel Donald Embolo", b4);
+
+// ===== GRUPO C =====
+            createJugador("Vinícius José Paixão de Oliveira Júnior", c1);
+            createJugador("Neymar da Silva Santos Júnior", c1);
+            createJugador("Raphael Dias Belloli", c1);
+            createJugador("Rodrygo Silva de Goes", c1);
+            createJugador("Youssef En-Nesyri", c2);
+            createJugador("Hakim Ziyech", c2);
+            createJugador("Scott McTominay", c4);
+
+// ===== GRUPO D =====
+            createJugador("Christian Mate Pulisic", d1);
+            createJugador("Folarin Jerry Balogun", d1);
+            createJugador("Julio Enciso", d2);
+
+// ===== GRUPO E =====
+            createJugador("Jamal Musiala", e1);
+            createJugador("Nick Woltemade", e1);
+            createJugador("Niclas Füllkrug", e1);
+            createJugador("Sébastien Haller", e3);
+            createJugador("Enner Remberto Valencia Lastra", e4);
+
+// ===== GRUPO F =====
+            createJugador("Memphis Depay", f1);
+            createJugador("Cody Mathès Gakpo", f1);
+            createJugador("Ayase Ueda", f2);
+
+// ===== GRUPO G =====
+            createJugador("Romelu Menama Lukaku", g1);
+            createJugador("Jérémy Baffour Doku", g1);
+            createJugador("Mohamed Salah Ghaly", g2);
+
+// ===== GRUPO H =====
+            createJugador("Lamine Yamal Nasraoui Ebana", h1);
+            createJugador("Ferran Torres García", h1);
+            createJugador("Darwin Gabriel Núñez Ribeiro", h4);
+
+// ===== GRUPO I =====
+            createJugador("Kylian Mbappé Lottin", i1);
+            createJugador("Antoine Griezmann", i1);
+            createJugador("Masour Ousmane Dembélé", i1);
+            createJugador("Sadio Mané Nassr", i2);
+            createJugador("Erling Braut Haaland", i4);
+            createJugador("Alexander Sørloth", i4);
+
+// ===== GRUPO J =====
+            createJugador("Lionel Andrés Messi Cuccittini", j1);
+            createJugador("Lautaro Javier Martínez", j1);
+            createJugador("Julián Álvarez", j1);
+            createJugador("Riyad Mahrez", j2);
+
+// ===== GRUPO K =====
+            createJugador("Cristiano Ronaldo dos Santos Aveiro", k1);
+            createJugador("Gonçalo Matias Ramos", k1);
+            createJugador("Rafael Alexandre Conceição Leão", k1);
+            createJugador("Luis Fernando Díaz Marulanda", k4);
+            createJugador("James David Rodríguez Rubio", k4);
+            createJugador("Jhon Jader Durán", k4);
+
+// ===== GRUPO L =====
+            createJugador("Harry Edward Kane", l1);
+            createJugador("Phil Walter Foden", l1);
+            createJugador("Cole Jermaine Palmer", l1);
+            createJugador("Jude Victor William Bellingham", l1);
+            createJugador("Bukayo Ayoyinka Temidayo Saka", l1);
+            createJugador("Andrej Kramarić", l2);
 
             // 7. FIXTURE OFICIAL 1-104
             System.out.println("---- GENERANDO FIXTURE 1 AL 104 ----");

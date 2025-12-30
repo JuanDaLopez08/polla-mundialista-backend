@@ -37,7 +37,7 @@ public class AppConstants {
 
 
     //URL Repechaje estandar
-    public static final String URL_REPECHAJE = "https://upload.wikimedia.org/wikipedia/commons/thumb/4/46/Question_mark_%28red%29.svg/640px-Question_mark_%28red%29.svg.png";
+    public static final String URL_REPECHAJE = "https://upload.wikimedia.org/wikipedia/commons/1/10/Flag_of_FIFA.svg";
 
     // Nombres de Fases
     public static final String FASE_GRUPOS = "Fase de Grupos";

@@ -120,6 +120,15 @@ public class TorneoService {
     }
 
     // ==========================================
+    // MÉTODOS DE APOYO (DEFINICIONES FINALES)
+    // ==========================================
+
+    // ✅ NUEVO MÉTODO: Obtener resultados oficiales (Para el Endpoint GET)
+    public ResultadoOficial obtenerResultadosOficiales() {
+        return resultadoRepo.findById(1L).orElse(null);
+    }
+
+    // ==========================================
     // MÉTODOS DE APOYO (Idénticos al flujo original)
     // ==========================================
     @Transactional

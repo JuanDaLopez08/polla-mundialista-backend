@@ -1,18 +1,21 @@
 package com.mundial.polla_mundialista.controller;
 
 import com.mundial.polla_mundialista.entity.Equipo;
+import com.mundial.polla_mundialista.entity.Fase;
 import com.mundial.polla_mundialista.entity.Jugador;
 import com.mundial.polla_mundialista.repository.EquipoRepository;
+import com.mundial.polla_mundialista.repository.FaseRepository;
 import com.mundial.polla_mundialista.repository.JugadorRepository;
 import com.mundial.polla_mundialista.service.TorneoService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
-import org.springframework.data.domain.Sort; // ✅ IMPORTANTE: Agregado para ordenar
+import org.springframework.data.domain.Sort;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List; // ✅ IMPORTANTE
+import java.time.LocalDateTime;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/admin")
@@ -22,28 +25,29 @@ public class AdminController {
     private final EquipoRepository equipoRepo;
     private final JugadorRepository jugadorRepo;
     private final TorneoService torneoService;
+    private final FaseRepository faseRepo;
 
-    public AdminController(EquipoRepository equipoRepo, JugadorRepository jugadorRepo,
-                           TorneoService torneoService) {
+    public AdminController(EquipoRepository equipoRepo,
+                           JugadorRepository jugadorRepo,
+                           TorneoService torneoService,
+                           FaseRepository faseRepo) {
         this.equipoRepo = equipoRepo;
         this.jugadorRepo = jugadorRepo;
         this.torneoService = torneoService;
+        this.faseRepo = faseRepo;
     }
 
     // ==========================================
     // 1. GESTIÓN DE EQUIPOS Y JUGADORES
     // ==========================================
 
-    // ✅ NUEVO: Endpoint para listar equipos ordenados alfabéticamente
     @GetMapping("/equipos")
     public List<Equipo> obtenerTodosLosEquipos() {
         return equipoRepo.findAll(Sort.by(Sort.Direction.ASC, "nombre"));
     }
 
-    // ✅ MODIFICADO: Ahora soporta cambiar 'esCandidatoPalo'
     @PutMapping("/actualizar-equipo/{id}")
     public Equipo actualizarEquipo(@PathVariable Long id, @RequestBody EquipoDTO dto) {
-        // Quitamos @Valid del parámetro para permitir actualizaciones parciales (sin enviar nombre obligatoriamente)
         Equipo equipo = equipoRepo.findById(id).orElseThrow(() -> new RuntimeException("Equipo no encontrado"));
 
         if (dto.getNombre() != null && !dto.getNombre().isBlank()) {
@@ -52,7 +56,6 @@ public class AdminController {
         if (dto.getUrlEscudo() != null) {
             equipo.setUrlEscudo(dto.getUrlEscudo());
         }
-        // Lógica nueva para el Palo
         if (dto.getEsCandidatoPalo() != null) {
             equipo.setEsCandidatoPalo(dto.getEsCandidatoPalo());
         }
@@ -80,7 +83,7 @@ public class AdminController {
     }
 
     // ==========================================
-    // 2. GESTIÓN DEL TORNEO (Con Penales)
+    // 2. GESTIÓN DEL TORNEO
     // ==========================================
 
     @PutMapping("/partidos/{id}/registrar-resultado")
@@ -119,18 +122,42 @@ public class AdminController {
     }
 
     // ==========================================
+    // 4. GESTIÓN DE FASES (CORREGIDO SEGÚN DB)
+    // ==========================================
+
+    @GetMapping("/fases")
+    public List<Fase> obtenerFases() {
+        return faseRepo.findAll(Sort.by(Sort.Direction.ASC, "id"));
+    }
+
+    @PutMapping("/fases/{id}")
+    public Fase actualizarFase(@PathVariable Long id, @RequestBody FaseDTO dto) {
+        Fase fase = faseRepo.findById(id)
+                .orElseThrow(() -> new RuntimeException("Fase no encontrada"));
+
+        // CORREGIDO: Usamos fechaLimite según tu imagen de DB
+        if (dto.getFechaLimite() != null) {
+            fase.setFechaLimite(dto.getFechaLimite());
+        }
+        // Opcional: Si quieres poder reabrir fases manualmente
+        if (dto.getEstado() != null) {
+            fase.setEstado(dto.getEstado());
+        }
+
+        return faseRepo.save(fase);
+    }
+
+    // ==========================================
     // DTOs INTERNOS
     // ==========================================
 
-    // ✅ MODIFICADO: Agregamos esCandidatoPalo
     @Data static class EquipoDTO {
-        private String nombre; // Ya no es @NotBlank obligatorio para permitir updates parciales
+        private String nombre;
         private String urlEscudo;
         private Boolean esCandidatoPalo;
     }
 
     @Data static class JugadorDTO {
-        // @NotBlank(message = "El nombre es obligatorio") // Opcional si quieres validación estricta
         private String nombre;
         private Long equipoId;
     }
@@ -138,10 +165,8 @@ public class AdminController {
     @Data static class ResultadoDTO {
         @NotNull(message = "Local obligatorio") @Min(value = 0, message = "No negativos")
         private Integer golesLocal;
-
         @NotNull(message = "Visitante obligatorio") @Min(value = 0, message = "No negativos")
         private Integer golesVisitante;
-
         private Integer golesPenalesLocal;
         private Integer golesPenalesVisitante;
     }
@@ -149,5 +174,11 @@ public class AdminController {
     @Data static class RivalesDTO {
         @NotNull(message = "Local obligatorio") private Long equipoLocalId;
         @NotNull(message = "Visitante obligatorio") private Long equipoVisitanteId;
+    }
+
+    // ✅ DTO CORREGIDO PARA FASES
+    @Data static class FaseDTO {
+        private LocalDateTime fechaLimite;
+        private String estado; // "ABIERTA", "CERRADA", etc.
     }
 }
